@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F6F7F9">
+<title>Label</title>
+<style>
+  :root {
+    --bg: #F6F7F9;
+    --card: #FFFFFF;
+    --card-hi: #EEF3F9;
+    --line: #D3D9E1;
+    --text: #1A2230;
+    --dim: #5D6878;
+    --accent: #1F6FB8;
+    --accent-ink: #FFFFFF;
+    --ok: #2E9A5E;
+    --bad: #C8452F;
+    --warn: #C98A12;
+    --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .app { max-width: 640px; margin: 0 auto; padding: 12px 12px 32px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* --- top bar --- */
+  .bar { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--ok); }
+  .dot.busy { background: var(--warn); }
+  .bar .who { font-family: var(--mono); font-size: 12px; color: var(--dim); flex: 1; min-width: 0;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  button {
+    font: inherit; color: var(--text); background: var(--card-hi);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    min-height: 48px; cursor: pointer;
+  }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 650; }
+  button.ghost { background: transparent; }
+  button.sm { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  input, select {
+    font: inherit; color: var(--text); background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px; width: 100%;
+    min-height: 48px;
+  }
+  input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* --- list --- */
+  .list { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto;
+          -webkit-overflow-scrolling: touch; }
+  .row {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; min-height: 56px;
+  }
+  .row[aria-selected="true"] { border-color: var(--accent); background: var(--card-hi); }
+  .row .id { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  .row .sub { font-size: 12px; color: var(--dim); }
+  .row .col { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .row .col > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pin { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.08em; flex: none; }
+
+  /* --- preview --- */
+  .preview { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: grid; place-items: center; }
+  canvas#label { width: 100%; height: auto; image-rendering: pixelated; display: block; }
+
+  .qty { display: flex; align-items: center; gap: 8px; }
+  .qty output { font-family: var(--mono); min-width: 3ch; text-align: center; font-size: 18px; }
+
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  summary { cursor: pointer; font-size: 14px; color: var(--dim); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); }
+
+  #log { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: pre-wrap;
+         max-height: 22vh; overflow-y: auto; margin: 0; }
+  .err { color: var(--bad); }
+  .banner { background: #FBECE9; border: 1px solid var(--bad); color: #7A2414; padding: 10px 12px;
+            border-radius: 10px; font-size: 14px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="bar">
+    <span class="dot" id="dot"></span>
+    <span class="who" id="who">not connected</span>
+    <button class="sm" id="btnConnect">Connect</button>
+  </div>
+
+  <div class="banner hidden" id="unsupported">
+    This browser has no Web Bluetooth. Use <b>Chrome on Android</b> over HTTPS.
+    (iOS has no Web Bluetooth at all.)
+  </div>
+
+  <input id="search" type="search" placeholder="Search labels…" autocomplete="off" enterkeyhint="done">
+  <div class="list" id="list"></div>
+
+  <div class="preview"><canvas id="label" width="384" height="240"></canvas></div>
+  <div class="meta" id="meta"></div>
+
+  <div class="qty">
+    <button class="sm" id="qtyMinus" aria-label="Fewer copies">−</button>
+    <output id="qty">1</output>
+    <button class="sm" id="qtyPlus" aria-label="More copies">+</button>
+    <button class="primary" id="btnPrint" style="flex:1" disabled>Print</button>
+  </div>
+
+  <details>
+    <summary>Settings &amp; log</summary>
+    <div class="grid2">
+      <label class="f">Print width (mm, max 48)<input id="mmW" type="number" min="10" max="48" step="1"></label>
+      <label class="f">Label height (mm)<input id="mmH" type="number" min="10" max="80" step="1"></label>
+      <label class="f">Print direction
+        <select id="dir"><option value="auto">auto (from printer)</option><option value="top">top</option><option value="left">left</option></select>
+      </label>
+      <label class="f">Print task
+        <select id="task">
+          <option value="auto">auto-detect</option>
+          <option value="B1">B1</option>
+          <option value="B21_V1">B21_V1</option>
+          <option value="D110">D110</option>
+          <option value="D110M_V4">D110M_V4</option>
+          <option value="D11_V1">D11_V1</option>
+        </select>
+      </label>
+      <label class="f">Darkness (1 to 5)
+        <select id="density"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+      </label>
+    </div>
+    <div class="grid2">
+      <button class="sm ghost" id="btnDisconnect">Disconnect</button>
+      <button class="sm ghost" id="btnFeed">Test print (blank frame)</button>
+    </div>
+    <pre id="log"></pre>
+  </details>
+
+</div>
+
+<!-- Protocol library. Pinned on purpose. Download this file and serve it locally so the
+     app still works with no signal:  <script src="./niimbluelib.min.js"></script> -->
+<script src="./niimbluelib.min.js"
+        onerror="var s=document.createElement('script');s.src='https://unpkg.com/@mmote/niimbluelib@0.0.1-alpha.40/dist/umd/niimbluelib.min.js';document.head.appendChild(s);"></script>
+
+<script>
+/* ============================================================================
+   1. YOUR LABELS.  Edit this array - that's the whole content model.
+      id  : the big text on the label
+      sub : small second line (optional)
+      qr  : what the QR code encodes (defaults to id)
+   ========================================================================== */
+const LABELS = [
+  { id: "A-1001",   sub: "Example: asset tag",    qr: "ASSET/A-1001" },
+  { id: "A-1002",   sub: "Example: asset tag",    qr: "ASSET/A-1002" },
+  { id: "BOX-14",   sub: "Example: storage box",  qr: "BOX/14" },
+  { id: "BOX-15",   sub: "Example: storage box",  qr: "BOX/15" },
+  { id: "CAL-Q3",   sub: "Example: calibration",  qr: "CAL/2026-Q3" },
+  { id: "SPARE",    sub: "Example: no QR prefix" },
+];
+
+const DOTS_PER_MM = 8;          // 203 dpi print head
+const MAX_W_DOTS = 384;         // B1/B21/B18 head: 384 dots = 48 mm, even on 50 mm stock
+const DEFAULTS = { mmW: 48, mmH: 30, dir: "auto", task: "auto", density: 3 };
+let headDots = MAX_W_DOTS;      // replaced by the printer's own head width after connecting
+
+/* ============================================================================
+   2. QR encoder - byte mode, EC level M, versions 1-10.
+      Inlined so the app needs no network. Verified against a reference
+      decoder for every mask and a range of payload lengths.
+   ========================================================================== */
+const QR = (() => {
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  (function () {
+    let x = 1;
+    for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  })();
+  const mul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+
+  const EC = {
+    1: [16, 10, [[1, 16]]],   2: [28, 16, [[1, 28]]],   3: [44, 26, [[1, 44]]],
+    4: [64, 18, [[2, 32]]],   5: [86, 24, [[2, 43]]],   6: [108, 16, [[4, 27]]],
+    7: [124, 18, [[4, 31]]],  8: [154, 22, [[2, 38], [2, 39]]],
+    9: [182, 22, [[3, 36], [2, 37]]], 10: [216, 26, [[4, 43], [1, 44]]],
+  };
+  const ALIGN = {
+    1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
+    6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+  };
+
+  function rsGen(n) {
+    let poly = [1];
+    for (let i = 0; i < n; i++) {
+      const next = new Array(poly.length + 1).fill(0);
+      for (let j = 0; j < poly.length; j++) { next[j] ^= poly[j]; next[j + 1] ^= mul(poly[j], EXP[i]); }
+      poly = next;
+    }
+    return poly;
+  }
+  function rsEncode(data, ecLen) {
+    const gen = rsGen(ecLen);
+    const res = new Uint8Array(data.length + ecLen);
+    res.set(data);
+    for (let i = 0; i < data.length; i++) {
+      const coef = res[i];
+      if (coef !== 0) for (let j = 1; j <= ecLen; j++) res[i + j] ^= mul(gen[j], coef);
+    }
+    return res.slice(data.length);
+  }
+  function pickVersion(len) {
+    for (let v = 1; v <= 10; v++) {
+      if (4 + (v <= 9 ? 8 : 16) + len * 8 <= EC[v][0] * 8) return v;
+    }
+    throw new Error("payload too long (max 213 bytes at version 10, EC level M)");
+  }
+  function bitstream(bytes, version) {
+    const bits = [];
+    const push = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+    push(0b0100, 4);
+    push(bytes.length, version <= 9 ? 8 : 16);
+    for (const b of bytes) push(b, 8);
+    const cap = EC[version][0] * 8;
+    push(0, Math.min(4, cap - bits.length));
+    while (bits.length % 8 !== 0) bits.push(0);
+    const pad = [0xEC, 0x11];
+    let k = 0;
+    while (bits.length < cap) push(pad[k++ % 2], 8);
+    const out = new Uint8Array(cap / 8);
+    for (let i = 0; i < out.length; i++) {
+      let v = 0;
+      for (let j = 0; j < 8; j++) v = (v << 1) | bits[i * 8 + j];
+      out[i] = v;
+    }
+    return out;
+  }
+  function interleave(data, version) {
+    const [, ecLen, groups] = EC[version];
+    const blocks = [];
+    let off = 0;
+    for (const [n, dc] of groups) {
+      for (let i = 0; i < n; i++) { blocks.push({ d: data.slice(off, off + dc) }); off += dc; }
+    }
+    for (const b of blocks) b.e = rsEncode(b.d, ecLen);
+    const maxD = Math.max(...blocks.map(b => b.d.length));
+    const out = [];
+    for (let i = 0; i < maxD; i++) for (const b of blocks) if (i < b.d.length) out.push(b.d[i]);
+    for (let i = 0; i < ecLen; i++) for (const b of blocks) out.push(b.e[i]);
+    return Uint8Array.from(out);
+  }
+  function maskBit(mask, r, c) {
+    switch (mask) {
+      case 0: return (r + c) % 2 === 0;
+      case 1: return r % 2 === 0;
+      case 2: return c % 3 === 0;
+      case 3: return (r + c) % 3 === 0;
+      case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+      case 5: return (r * c) % 2 + (r * c) % 3 === 0;
+      case 6: return ((r * c) % 2 + (r * c) % 3) % 2 === 0;
+      default: return ((r + c) % 2 + (r * c) % 3) % 2 === 0;
+    }
+  }
+  function build(codewords, version, mask) {
+    const size = version * 4 + 17;
+    const m = Array.from({ length: size }, () => new Int8Array(size).fill(-1));
+    const set = (r, c, v) => { if (r >= 0 && c >= 0 && r < size && c < size) m[r][c] = v; };
+    const finder = (r0, c0) => {
+      for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+        const ring = (r >= 0 && r <= 6 && c >= 0 && c <= 6) && (r === 0 || r === 6 || c === 0 || c === 6);
+        const core = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        set(r0 + r, c0 + c, (ring || core) ? 1 : 0);
+      }
+    };
+    finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+    for (let i = 8; i < size - 8; i++) { set(6, i, i % 2 === 0 ? 1 : 0); set(i, 6, i % 2 === 0 ? 1 : 0); }
+    for (const r of ALIGN[version]) for (const c of ALIGN[version]) {
+      if ((r === 6 && c === 6) || (r === 6 && c === size - 7) || (r === size - 7 && c === 6)) continue;
+      for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+        set(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) === 1 ? 0 : 1);
+      }
+    }
+    const fmtData = (0b00 << 3) | mask;              // 00 = EC level M
+    let rem = fmtData;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >> 9) * 0x537);
+    const fmt = ((fmtData << 10) | rem) ^ 0x5412;
+    for (let i = 0; i <= 5; i++) set(i, 8, (fmt >> i) & 1);
+    set(7, 8, (fmt >> 6) & 1);
+    set(8, 8, (fmt >> 7) & 1);
+    set(8, 7, (fmt >> 8) & 1);
+    for (let i = 9; i <= 14; i++) set(8, 14 - i, (fmt >> i) & 1);
+    for (let i = 0; i <= 7; i++) set(8, size - 1 - i, (fmt >> i) & 1);
+    for (let i = 8; i <= 14; i++) set(size - 15 + i, 8, (fmt >> i) & 1);
+    set(size - 8, 8, 1);
+    if (version >= 7) {
+      let vr = version;
+      for (let i = 0; i < 12; i++) vr = (vr << 1) ^ ((vr >> 11) * 0x1F25);
+      const vbits = (version << 12) | vr;
+      for (let i = 0; i < 18; i++) {
+        const bit = (vbits >> i) & 1;
+        const a = size - 11 + i % 3, b = Math.floor(i / 3);
+        set(a, b, bit); set(b, a, bit);
+      }
+    }
+    let bi = 0;
+    const nextBit = () => {
+      if (bi >= codewords.length * 8) return 0;
+      const b = (codewords[bi >> 3] >> (7 - (bi & 7))) & 1;
+      bi++;
+      return b;
+    };
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < size; vert++) {
+        for (let j = 0; j < 2; j++) {
+          const c = right - j;
+          const upward = ((right + 1) & 2) === 0;
+          const r = upward ? size - 1 - vert : vert;
+          if (m[r][c] !== -1) continue;
+          m[r][c] = nextBit() ^ (maskBit(mask, r, c) ? 1 : 0);
+        }
+      }
+    }
+    return m;
+  }
+  function penalty(m) {
+    const size = m.length;
+    let score = 0;
+    const rs = (run) => run >= 5 ? 3 + (run - 5) : 0;
+    for (let r = 0; r < size; r++) {
+      let run = 1;
+      for (let c = 1; c < size; c++) { if (m[r][c] === m[r][c - 1]) run++; else { score += rs(run); run = 1; } }
+      score += rs(run);
+    }
+    for (let c = 0; c < size; c++) {
+      let run = 1;
+      for (let r = 1; r < size; r++) { if (m[r][c] === m[r - 1][c]) run++; else { score += rs(run); run = 1; } }
+      score += rs(run);
+    }
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++) {
+      const v = m[r][c];
+      if (v === m[r][c + 1] && v === m[r + 1][c] && v === m[r + 1][c + 1]) score += 3;
+    }
+    const pat = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], rev = pat.slice().reverse();
+    const hits = (arr) => {
+      let n = 0;
+      for (let i = 0; i + 11 <= arr.length; i++) {
+        let a = true, b = true;
+        for (let j = 0; j < 11; j++) { if (arr[i + j] !== pat[j]) a = false; if (arr[i + j] !== rev[j]) b = false; }
+        if (a) n++;
+        if (b) n++;
+      }
+      return n;
+    };
+    for (let r = 0; r < size; r++) score += 40 * hits(Array.from(m[r]));
+    for (let c = 0; c < size; c++) score += 40 * hits(m.map(row => row[c]));
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) dark += m[r][c];
+    score += Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+    return score;
+  }
+  function encode(text) {
+    const bytes = Array.from(new TextEncoder().encode(text));
+    const version = pickVersion(bytes.length);
+    const cw = interleave(bitstream(bytes, version), version);
+    let best = null;
+    for (let mask = 0; mask < 8; mask++) {
+      const m = build(cw, version, mask);
+      const p = penalty(m);
+      if (best === null || p < best.p) best = { p, mask, m };
+    }
+    return { size: version * 4 + 17, version, mask: best.mask, modules: best.m };
+  }
+  return { encode };
+})();
+
+/* ============================================================================
+   3. Label rendering.  Everything in whole dots - no fractional modules.
+   ========================================================================== */
+const cv = document.getElementById("label");
+const ctx = cv.getContext("2d", { willReadFrequently: true });
+
+let warnedWidth = false;
+function render(item) {
+  let W = Math.round(cfg.mmW * DOTS_PER_MM);
+  if (W > headDots) {
+    W = headDots;
+    if (!warnedWidth) { warnedWidth = true; log(`width clamped to ${headDots} dots (${headDots / DOTS_PER_MM} mm), the head can't print wider`); }
+  }
+  const H = Math.round(cfg.mmH * DOTS_PER_MM);
+  cv.width = W; cv.height = H;
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+  if (!item) { flatten(); return { W, H, qrPx: 0, version: 0 }; }
+
+  const M = 10;                                     // outer margin, dots
+  const QUIET = 4;                                  // quiet zone, modules
+  const qr = QR.encode(item.qr || item.id);
+  const total = qr.size + QUIET * 2;
+  const scale = Math.max(1, Math.floor((H - M * 2) / total));   // whole dots per module
+  const qrPx = total * scale;
+  const qx = M, qy = Math.floor((H - qrPx) / 2);
+
+  ctx.fillStyle = "#000";
+  for (let r = 0; r < qr.size; r++) {
+    for (let c = 0; c < qr.size; c++) {
+      if (qr.modules[r][c] === 1) {
+        ctx.fillRect(qx + (c + QUIET) * scale, qy + (r + QUIET) * scale, scale, scale);
+      }
+    }
+  }
+
+  const tx = qx + qrPx + 14;
+  const tw = W - tx - M;
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "alphabetic";
+
+  let size = Math.min(64, Math.floor(H * 0.42));
+  const face = (px) => `700 ${px}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.font = face(size);
+  while (size > 14 && ctx.measureText(item.id).width > tw) { size -= 2; ctx.font = face(size); }
+
+  const hasSub = !!item.sub;
+  const subSize = Math.max(12, Math.round(size * 0.34));
+  const idY = hasSub ? Math.round(H / 2) : Math.round(H / 2 + size * 0.36);
+  ctx.fillText(item.id, tx, idY);
+
+  if (hasSub) {
+    ctx.font = `400 ${subSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+    let sub = item.sub;
+    while (sub.length > 4 && ctx.measureText(sub).width > tw) sub = sub.slice(0, -2);
+    ctx.fillText(sub, tx, idY + subSize + 8);
+  }
+
+  flatten();
+  return { W, H, qrPx, version: qr.version, scale, size };
+}
+
+/* Hard 1-bit threshold: grey pixels become random dots on a thermal head. */
+function flatten() {
+  const d = ctx.getImageData(0, 0, cv.width, cv.height);
+  const p = d.data;
+  for (let i = 0; i < p.length; i += 4) {
+    const lum = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+    const v = lum < 128 ? 0 : 255;
+    p[i] = p[i + 1] = p[i + 2] = v;
+    p[i + 3] = 255;
+  }
+  ctx.putImageData(d, 0, 0);
+}
+
+/* ============================================================================
+   4. State, list, settings
+   ========================================================================== */
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, dflt) { try { const v = localStorage.getItem("nb." + k); return v === null ? dflt : JSON.parse(v); } catch { return dflt; } },
+  set(k, v) { try { localStorage.setItem("nb." + k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
+
+const cfg = Object.assign({}, DEFAULTS, store.get("cfg", {}));
+let selected = null, qty = 1, client = null, busy = false;
+let recents = store.get("recents", []);
+
+function log(msg, isErr) {
+  const el = $("log");
+  const t = new Date().toTimeString().slice(0, 8);
+  const line = document.createElement("span");
+  line.textContent = `${t}  ${msg}\n`;
+  if (isErr) line.className = "err";
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function orderedLabels() {
+  const q = $("search").value.trim().toLowerCase();
+  let items = LABELS.slice();
+  if (q) {
+    items = items.filter(l => (l.id + " " + (l.sub || "") + " " + (l.qr || "")).toLowerCase().includes(q));
+    if (!items.length) items = [{ id: $("search").value.trim(), sub: "", qr: $("search").value.trim(), adhoc: true }];
+  } else {
+    const rank = (id) => { const i = recents.indexOf(id); return i === -1 ? 999 : i; };
+    items.sort((a, b) => rank(a.id) - rank(b.id));
+  }
+  return items;
+}
+
+function drawList() {
+  const list = $("list");
+  list.textContent = "";
+  for (const item of orderedLabels()) {
+    const b = document.createElement("button");
+    b.className = "row";
+    b.setAttribute("aria-selected", selected && selected.id === item.id ? "true" : "false");
+    const col = document.createElement("span");
+    col.className = "col";
+    const id = document.createElement("span"); id.className = "id"; id.textContent = item.id;
+    col.appendChild(id);
+    if (item.sub) { const s = document.createElement("span"); s.className = "sub"; s.textContent = item.sub; col.appendChild(s); }
+    b.appendChild(col);
+    if (item.adhoc) { const p = document.createElement("span"); p.className = "pin"; p.textContent = "one-off"; b.appendChild(p); }
+    else if (recents[0] === item.id) { const p = document.createElement("span"); p.className = "pin"; p.textContent = "LAST"; b.appendChild(p); }
+    b.addEventListener("click", () => select(item));
+    list.appendChild(b);
+  }
+}
+
+function select(item) {
+  selected = item;
+  const info = render(item);
+  $("meta").textContent =
+    `${info.W}×${info.H} dots · ${cfg.mmW}×${cfg.mmH} mm · QR v${info.version} @ ${info.scale} dots/module · "${item.qr || item.id}"`;
+  drawList();
+  updateButtons();
+}
+
+function updateButtons() {
+  $("btnPrint").disabled = !(client && selected && !busy);
+  $("btnFeed").disabled = !(client && !busy);
+  $("qty").textContent = String(qty);
+}
+
+/* ============================================================================
+   5. Printer
+   ========================================================================== */
+function requireLib() {
+  const lib = window.niimbluelib || window.NiimBlueLib || null;
+  if (!lib || !lib.NiimbotBluetoothClient) throw new Error("niimbluelib failed to load: put niimbluelib.min.js beside this file, or check signal");
+  return lib;
+}
+let printerDir = "top";         // B1 and B21 default; replaced by printer metadata
+
+function effectiveDir() { return cfg.dir === "auto" ? printerDir : cfg.dir; }
+
+async function connect() {
+  try {
+    const { NiimbotBluetoothClient } = requireLib();
+    busy = true; setDot("busy"); updateButtons();
+    client = new NiimbotBluetoothClient();
+    await client.connect();
+    let name = "connected";
+    try {
+      const md = client.getModelMetadata && client.getModelMetadata();
+      if (md && md.model) name = md.model;
+      if (md && md.printDirection) printerDir = md.printDirection;
+      if (md && md.printheadPixels) { headDots = md.printheadPixels; warnedWidth = false; if (selected) select(selected); }
+    } catch { /* metadata is optional */ }
+    let task = "?";
+    try { task = client.getPrintTaskType() || "?"; } catch { /* ditto */ }
+    $("who").textContent = `${name} · task ${cfg.task === "auto" ? task : cfg.task}`;
+    setDot("on");
+    log(`connected (${name}), print task: ${task}, direction: ${printerDir}, head: ${headDots} dots`);
+  } catch (e) {
+    client = null; setDot("off");
+    $("who").textContent = "not connected";
+    log("connect failed: " + (e && e.message ? e.message : e), true);
+    if (String(e).includes("cancel")) log("hint: chooser empty? turn on Android Location, and force-close the Niimbot app.");
+  } finally {
+    busy = false; updateButtons();
+  }
+}
+
+async function disconnect() {
+  try { if (client) await client.disconnect(); } catch (e) { log("disconnect: " + e.message, true); }
+  client = null; setDot("off"); $("who").textContent = "not connected"; updateButtons();
+}
+
+function setDot(state) {
+  const d = $("dot");
+  d.className = "dot" + (state === "on" ? " on" : state === "busy" ? " busy" : "");
+}
+
+async function print(copies, isTest) {
+  if (!client) return;
+  const { ImageEncoder } = requireLib();
+  busy = true; setDot("busy"); updateButtons();
+  let task = null;
+  try {
+    const encoded = ImageEncoder.encodeCanvas(cv, effectiveDir());
+    let taskName = cfg.task;
+    if (taskName === "auto") {
+      try { taskName = client.getPrintTaskType() || "B1"; } catch { taskName = "B1"; }
+    }
+    log(`printing ${copies}× as ${taskName}, direction "${effectiveDir()}", darkness ${cfg.density}`);
+    task = client.abstraction.newPrintTask(taskName, {
+      totalPages: copies,
+      density: Number(cfg.density),
+      statusPollIntervalMs: 100,
+      statusTimeoutMs: 8000,
+    });
+    await task.printInit();
+    await task.printPage(encoded, copies);
+    await task.waitForFinished();
+    log("done");
+    if (!isTest && selected && !selected.adhoc) {
+      recents = [selected.id].concat(recents.filter(x => x !== selected.id)).slice(0, 6);
+      store.set("recents", recents);
+      drawList();
+    }
+  } catch (e) {
+    log("print failed: " + (e && e.message ? e.message : e), true);
+    log("if it half-printed: power-cycle the printer, then reconnect.");
+  } finally {
+    try { if (task) await task.printEnd(); } catch (e) { log("printEnd: " + e.message, true); }
+    busy = false; setDot(client ? "on" : "off");
+    if (isTest && selected) select(selected); else updateButtons();
+  }
+}
+
+/* ============================================================================
+   6. Wire-up
+   ========================================================================== */
+["mmW", "mmH"].forEach(k => {
+  $(k).value = cfg[k];
+  $(k).addEventListener("change", () => {
+    const v = parseFloat($(k).value);
+    if (v > 0) { cfg[k] = v; store.set("cfg", cfg); if (selected) select(selected); }
+  });
+});
+$("dir").value = cfg.dir;
+$("dir").addEventListener("change", () => { cfg.dir = $("dir").value; store.set("cfg", cfg); });
+$("density").value = String(cfg.density);
+$("density").addEventListener("change", () => { cfg.density = Number($("density").value); store.set("cfg", cfg); });
+$("task").value = cfg.task;
+$("task").addEventListener("change", () => { cfg.task = $("task").value; store.set("cfg", cfg); });
+
+$("search").addEventListener("input", drawList);
+$("btnConnect").addEventListener("click", connect);
+$("btnDisconnect").addEventListener("click", disconnect);
+$("btnPrint").addEventListener("click", () => print(qty));
+$("btnFeed").addEventListener("click", () => { render(null); print(1, true); });
+$("qtyPlus").addEventListener("click", () => { qty = Math.min(20, qty + 1); updateButtons(); });
+$("qtyMinus").addEventListener("click", () => { qty = Math.max(1, qty - 1); updateButtons(); });
+
+if (!navigator.bluetooth) {
+  $("unsupported").classList.remove("hidden");
+  $("btnConnect").disabled = true;
+}
+if (location.protocol !== "https:" && location.hostname !== "localhost") {
+  log("Web Bluetooth needs HTTPS (or localhost). This page is " + location.protocol, true);
+}
+
+drawList();
+select(orderedLabels()[0]);
+log("ready · edit the LABELS array at the top of this file to change the list");
+</script>
+</body>
+</html>
