@@ -86,7 +86,7 @@
     </label>
     <label class="f">Depth from (ft)<input id="f_d1" type="number" inputmode="decimal" step="0.1" min="0"></label>
     <label class="f">Depth to (ft)<input id="f_d2" type="number" inputmode="decimal" step="0.1" min="0"></label>
-    <label class="f full">Description<input id="f_desc" maxlength="32" list="descList" autocomplete="off"></label>
+    <label class="f full">Description (QR only)<input id="f_desc" maxlength="32" list="descList" autocomplete="off"></label>
     <datalist id="descList"></datalist>
     <label class="f full">Date and time
       <span class="inrow"><input id="f_time" type="datetime-local"><button class="sm" id="btnNow">Now</button></span>
@@ -469,17 +469,12 @@ function render(v) {
   const tx = qx + qrPx + 2, tw = W - tx - 4;
   const lines = [];
   const add = (t, weight, size) => { if (t) lines.push({ t, weight, size: fitFont(t, weight, size, tw, 9) }); };
-  add(v.proj, 600, 20);
-  add([v.boring, v.sample].filter(Boolean).join("  "), 700, 30);
-  add(v.depth, 700, 24);
-  if (v.desc) {
-    let ds = 19, parts;
-    for (;; ds--) { ctx.font = `400 ${ds}px ${SANS}`; parts = wrap2(v.desc, tw); if (!parts.some(t => t.endsWith("\u2026")) || ds <= 9) break; }
-    for (const t of parts) lines.push({ t, weight: 400, size: ds });
-  }
-  add(v.when, 400, 18);
-  add(v.gps, 400, 17);
-  add(v.logger, 400, 18);
+  add(v.proj, 600, 22);
+  add([v.boring, v.sample].filter(Boolean).join("  "), 700, 32);
+  add(v.depth, 700, 28);
+  add(v.when, 400, 20);
+  add(v.gps, 400, 19);
+  add(v.logger, 400, 20);
 
   // Shrink the whole stack together if it is taller than the label
   const gap = 1.16, avail = H - 10;
@@ -645,8 +640,11 @@ async function print(copies, isTest) {
       store.set("samples", history);
       drawHistory();
       $("f_sample").value = nextSampleId(v.sample);
-      $("f_d1").value = v.d2 || "";
-      $("f_d2").value = "";
+      const a = parseFloat(v.d1), b = parseFloat(v.d2);
+      if (!isNaN(a) && !isNaN(b) && b > a) {
+        $("f_d1").value = b;
+        $("f_d2").value = Math.round((b + (b - a)) * 100) / 100;
+      }
       $("f_desc").value = "";
       $("f_time").value = nowLocal(); timeEdited = false;
       qty = 1;
